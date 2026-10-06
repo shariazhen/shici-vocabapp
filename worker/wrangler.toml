@@ -1,0 +1,23 @@
+name = "shici"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# 每 30 分钟跑一次；真正推不推由代码按每台设备的「活跃时段 + 间隔」判断，
+# 所以在 App 里改时段/间隔即可，不用动这里。
+[triggers]
+crons = ["*/30 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shici"
+database_id = "e4f8e36d-8b96-4dfa-ae1e-25b8711cda8c"
+
+# AI 补全（/enrich）用。不需要 API key，免费额度内够个人用。
+# 不想用就把这两行删掉，/enrich 会返回 501，App 里只是不自动补助记。
+[ai]
+binding = "AI"
+
+[vars]
+VAPID_SUBJECT = "mailto:you@example.com"
+VAPID_PUBLIC_KEY = "BBNqwUcTPgpN2rrdgPiAeTjUFsw4LYKMah-Cv4fdLcXWjGpl9xVkgh7SeDdDonPQnZSxyzsWb-2J--iUI2zB1L8"
+# 私钥不写这里：npx wrangler secret put VAPID_PRIVATE_KEY
