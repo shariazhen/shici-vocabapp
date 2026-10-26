@@ -10,21 +10,72 @@ var API = (CFG.API_BASE || '').replace(/\/+$/, '');
 var DAY = 86400000;
 
 /* ───────── IndexedDB ───────── */
-var DB_NAME = 'shici', DB_VER = 2, _db = null;
+var DB_NAME = 'shici', DB_VER = 3, _db = null;
 
 function openDB() {
   return new Promise(function (res, rej) {
     if (_db) return res(_db);
     var rq = indexedDB.open(DB_NAME, DB_VER);
-    rq.onupgradeneeded = function (e) {
-      var db = e.target.result;
-      if (!db.objectStoreNames.contains('words'))    db.createObjectStore('words',    { keyPath: 'w' });
-      if (!db.objectStoreNames.contains('logs'))     db.createObjectStore('logs',     { keyPath: 'date' });
-      if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'k' });
-      if (!db.objectStoreNames.contains('drills'))   db.createObjectStore('drills',   { keyPath: 'id', autoIncrement: true });
+    var migrationError;
+    rq.onupgradeneeded = function () {
+      var db = rq.result, tx = rq.transaction;
+      var definitions = {
+        words: { keyPath: 'w' }, logs: { keyPath: 'date' },
+        settings: { keyPath: 'k' }, drills: { keyPath: 'id', autoIncrement: true }
+      };
+      Object.keys(definitions).forEach(function (name) {
+        var definition = definitions[name];
+        if (!db.objectStoreNames.contains(name)) { db.createObjectStore(name, definition); return; }
+        var old = tx.objectStore(name);
+        if (old.keyPath === definition.keyPath && old.autoIncrement === !!definition.autoIncrement) return;
+        // Keep every original value and primary key, then rebuild atomically.
+        // An aborted upgrade leaves the complete previous database untouched.
+        var backupName = '_backup_v2_' + name, suffix = 0;
+        while (db.objectStoreNames.contains(backupName)) backupName = '_backup_v2_' + name + '_' + (++suffix);
+        var backup = db.createObjectStore(backupName, { keyPath: 'key' });
+        var rows = [], cursor = old.openCursor();
+        cursor.onsuccess = function () {
+          try {
+            var c = cursor.result;
+            if (c) {
+              backup.put({ key: c.primaryKey, value: c.value });
+              var value = Object.assign({}, c.value), key = definition.keyPath;
+              if (value[key] == null) {
+                if (name === 'words') value.w = value.word || (typeof c.primaryKey === 'string' ? c.primaryKey : null);
+                if (name === 'settings') { value.k = value.key || c.primaryKey; if (!Object.prototype.hasOwnProperty.call(value, 'v')) value.v = value.value; }
+                if (name === 'logs') value.date = value.day || c.primaryKey;
+                if (name === 'drills') value.id = c.primaryKey;
+              }
+              if (value[key] == null || (name === 'words' && (typeof value.w !== 'string' || !value.w.trim()))) {
+                throw new Error('旧数据无法自动识别，升级已取消，原始数据保留。');
+              }
+              rows.push(value); c.continue(); return;
+            }
+            db.deleteObjectStore(name);
+            var fresh = db.createObjectStore(name, definition);
+            // add, rather than put, prevents silently overwriting duplicate legacy keys.
+            rows.forEach(function (row) { fresh.add(row); });
+          } catch (err) { migrationError = err; tx.abort(); }
+        };
+      });
     };
-    rq.onsuccess = function () { _db = rq.result; res(_db); };
-    rq.onerror   = function () { rej(rq.error); };
+    rq.onsuccess = function () {
+      _db = rq.result;
+      _db.onversionchange = function () { _db.close(); _db = null; };
+      var waiting = document.getElementById('database-upgrade-wait');
+      if (waiting) waiting.remove();
+      res(_db);
+    };
+    rq.onblocked = function () {
+      var hint = document.getElementById('update-hint');
+      var message = '数据库升级等待中：请关闭其他拾词标签页或旧版 App 窗口。本页会在连接释放后继续，勿清除网站数据。';
+      if (hint) hint.textContent = message;
+      var body = document.querySelector('#screen-today .screen-body');
+      if (body && !document.getElementById('database-upgrade-wait')) {
+        var notice = document.createElement('div'); notice.id = 'database-upgrade-wait'; notice.className = 'card'; notice.setAttribute('role', 'status'); notice.textContent = message; body.prepend(notice);
+      }
+    };
+    rq.onerror = function () { rej(migrationError || rq.error); };
   });
 }
 function req(r) { return new Promise(function (res, rej) { r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
@@ -40,7 +91,7 @@ function dbPutMany(store, arr) {
       var t = db.transaction(store, 'readwrite'), o = t.objectStore(store);
       arr.forEach(function (v) { o.put(v); });
       t.oncomplete = function () { res(arr.length); };
-      t.onerror    = function () { rej(t.error); };
+      t.onerror = t.onabort = function () { rej(t.error || new Error('数据库写入已取消')); };
     });
   });
 }

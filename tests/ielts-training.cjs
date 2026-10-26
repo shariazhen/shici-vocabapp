@@ -37,7 +37,7 @@ const assert = require('node:assert/strict');
  await page.locator('#score-history button').first().click();await page.waitForFunction(()=>document.querySelectorAll('#score-history .score-row').length===3);
  await page.locator('#screen-training').evaluate(e=>e.scrollTop=0);await page.screenshot({path:'/tmp/shici-v2-training.png',fullPage:true});
  // Offline training and score history survive reload.
- await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForTimeout(500);assert(await page.evaluate(async()=>!!await(await caches.open('shici-2.3')).match('./ielts-training.js')));
+ await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForTimeout(500);assert(await page.evaluate(async()=>!!await(await caches.open('shici-'+window.SHICI_VERSION)).match('./ielts-training.js')));
  await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('#w-word').textContent!=='—');await open();await select('essay-training');assert.match(await page.locator('#training-text').inputValue(),/Practical/);assert.equal(await page.locator('#score-history .score-row').count(),3);
  assert.equal(errors.length,0,errors.join('\n'));
  // Permission rejection must preserve text workflow.

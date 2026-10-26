@@ -10,8 +10,8 @@ const assert = require('node:assert/strict');
  await page.route('https://**',r=>r.abort()); // No production API calls in smoke tests.
  const base=process.env.SHICI_TEST_URL || 'http://127.0.0.1:8081';
  await page.goto(base); await page.waitForFunction(()=>document.querySelector('#w-word').textContent==='accommodation');
- async function read(store,key) {return page.evaluate(({store,key})=>new Promise((resolve,reject)=>{const r=indexedDB.open('shici',2);r.onsuccess=()=>{const q=r.result.transaction(store).objectStore(store);const v=key?q.get(key):q.getAll();v.onsuccess=()=>resolve(v.result);v.onerror=()=>reject(v.error);};}),{store,key});}
- async function put(store,value) {return page.evaluate(({store,value})=>new Promise(resolve=>{const r=indexedDB.open('shici',2);r.onsuccess=()=>{const t=r.result.transaction(store,'readwrite');t.objectStore(store).put(value);t.oncomplete=resolve;};}),{store,value});}
+ async function read(store,key) {return page.evaluate(({store,key})=>new Promise((resolve,reject)=>{const r=indexedDB.open('shici');r.onsuccess=()=>{const q=r.result.transaction(store).objectStore(store);const v=key?q.get(key):q.getAll();v.onsuccess=()=>resolve(v.result);v.onerror=()=>reject(v.error);};}),{store,key});}
+ async function put(store,value) {return page.evaluate(({store,value})=>new Promise(resolve=>{const r=indexedDB.open('shici');r.onsuccess=()=>{const t=r.result.transaction(store,'readwrite');t.objectStore(store).put(value);t.oncomplete=resolve;};}),{store,value});}
  let words=await read('words'); assert.equal(words.filter(w=>w.track==='雅思G').length,24); assert(words.some(w=>w.w==='fulfillment'));
  assert.equal(new Set(words.map(w=>w.w.toLowerCase())).size,words.length);
  for(const w of words.filter(w=>w.track==='雅思G')) {assert(w.coll.length>=2 && w.paraphrase && w.usage && w.p && w.prompt);assert(w.blank && w.blank.s.includes('____'));}
@@ -49,7 +49,7 @@ const assert = require('node:assert/strict');
  await page.reload();await page.waitForFunction(()=>document.querySelector('#study-track').value==='商务');
  // Service worker must have cached the newly added word list.
  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForTimeout(500);
- const cached=await page.evaluate(async()=>{const c=await caches.open('shici-2.3');return !!await c.match('./ielts-seed.js');});assert(cached);
+ const cached=await page.evaluate(async()=>{const c=await caches.open('shici-'+window.SHICI_VERSION);return !!await c.match('./ielts-seed.js');});assert(cached);
  await context.setOffline(true);await page.reload();await page.waitForFunction(()=>document.querySelector('#w-word').textContent!=='—');
  assert.equal(errors.length,0,errors.join('\n'));
  await context.setOffline(false);await page.locator('#study-track').selectOption('雅思G');await page.waitForTimeout(200);

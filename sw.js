@@ -4,7 +4,7 @@
        推了新版本，手机一打开就是新的；没网时回落到缓存，照样能用。
      · 字体和图标 → 缓存优先（这些永远不变，没必要每次走网络）
    所以更新 App 不需要改这里的 CACHE 名字。*/
-var VERSION = '2.3';
+var VERSION = '2.3.1';
 var CACHE = 'shici-' + VERSION;
 var SHELL = [
   './', './index.html', './app.js', './ielts-training.js', './seed.js', './ielts-seed.js', './config.js',
@@ -68,10 +68,11 @@ function pickWord() {
     rq.onerror = function () { res(null); };
     rq.onsuccess = function () {
       var db = rq.result;
-      if (!db.objectStoreNames.contains('words')) { res(null); return; }
+      if (!db.objectStoreNames.contains('words')) { db.close(); res(null); return; }
       var g = db.transaction('words').objectStore('words').getAll();
-      g.onerror = function () { res(null); };
+      g.onerror = function () { db.close(); res(null); };
       g.onsuccess = function () {
+        db.close();
         var all = g.result || [];
         if (!all.length) { res(null); return; }
         var now = Date.now();
