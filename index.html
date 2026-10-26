@@ -28,6 +28,16 @@
 @font-face{font-family:'Plex Mono';font-style:normal;font-weight:400;font-display:swap;
   src:url(./fonts/plex-mono-400-ext.woff2) format('woff2');
   unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+
+.ielts-panel{padding:18px;border:1px solid var(--rule);border-radius:16px;margin-bottom:20px;background:var(--paper)}
+.study-note,.study-label{font-size:12px;color:var(--ink-2);line-height:1.7}
+.ielts-panel select,.ielts-panel textarea{width:100%;box-sizing:border-box;margin:8px 0;padding:10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit}
+.ielts-panel textarea{resize:vertical}.ielts-panel details{margin-top:12px;font-size:13px;line-height:1.7}
+.task-row{display:flex;width:100%;justify-content:space-between;gap:8px;padding:10px 0;border:0;border-bottom:1px solid var(--rule);background:transparent;color:var(--ink);text-align:left;font:inherit;font-size:13px;cursor:pointer}
+.word-detail{box-sizing:border-box;width:min(92vw,440px);max-height:85vh;overflow:auto;border:1px solid var(--rule);border-radius:18px;padding:24px;background:var(--paper);color:var(--ink);line-height:1.7}.word-detail::backdrop{background:#0007}.word-detail h2{overflow-wrap:anywhere}.word-detail ul{padding-left:20px}.word-detail p{font-size:14px}.word-extra{font-size:12px;line-height:1.7;padding:10px 0;border-bottom:1px solid var(--rule)}
+
+.training-card{padding:18px;background:var(--paper);border:1px solid var(--rule);border-radius:16px;line-height:1.7;min-width:0}
+.training-card h2{font-size:18px;margin:0 0 12px}.training-card h3{font-size:16px}.training-card label{display:block;font-size:13px;margin-top:12px}.training-card select,.training-card textarea,.training-card input:not([type=checkbox]){box-sizing:border-box;width:100%;padding:10px;margin:6px 0 12px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit;font-size:16px}.training-card textarea{resize:vertical}.training-card p,.training-card li{overflow-wrap:anywhere}.training-card ul{padding-left:22px}.training-card fieldset{border:1px solid var(--rule);margin:14px 0;padding:12px}.training-card legend{font-size:13px}.training-card details{margin:14px 0}.training-actions{display:flex;gap:8px;flex-wrap:wrap}.training-actions .btn{font-size:13px;min-height:44px;height:auto;padding:10px 14px}.training-card audio{width:100%;margin-top:12px}.training-card a{color:var(--seal)}.training-card button:disabled{opacity:.5}.band-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.band-card{display:flex;flex-direction:column;padding:12px;border:1px solid var(--rule);border-radius:10px}.band-card strong{font-size:28px}.band-card span{font-size:11px;color:var(--ink-2)}.score-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--rule);padding:10px 0;font-size:12px}.score-row span{overflow-wrap:anywhere}.saved-answer{white-space:pre-wrap}.training-history-item{border-top:1px solid var(--rule);padding-top:12px}#training-back{font-size:12px;padding:8px 12px;height:40px;flex-shrink:0}
 </style>
 <style>
 /* ══════════════════════════════════════════════════════════════
@@ -716,6 +726,20 @@ select.time-select {
         </header>
 
         <div class="screen-body">
+          <section class="ielts-panel" aria-label="备考计划">
+            <div class="group-label">G 类备考 · 目标四科 7+</div>
+            <button class="task-row training-open">进入说写训练与四科进度 →</button>
+            <label class="study-label" for="study-track">学习词库</label>
+            <select id="study-track"><option value="雅思G">雅思 G 类主题</option><option value="商务">原有商务与自建词库</option><option value="全部">全部词库</option></select>
+            <p class="study-note">先复习，再学新表达；练习成绩不等于雅思分数。</p>
+            <div id="daily-tasks" aria-live="polite"></div>
+            <details><summary>今日说写小任务</summary><p id="output-prompt"></p>
+              <label for="output-draft">先口头回答，再写下 2–3 句，尝试使用今天的表达。</label>
+              <textarea id="output-draft" rows="3" placeholder="在这里保存你的英文练习…"></textarea>
+              <button class="btn btn-ghost" id="save-output">保存今日练习</button>
+              <p class="study-note" id="output-status" role="status">检查：回答切题吗？搭配准确吗？句子完整吗？此处不自动评分。</p>
+            </details>
+          </section>
           <div class="progress-block">
             <div class="progress-meta"><span class="card-mode" id="card-mode">今日新词</span><b class="num" id="progress-num">0 / 10</b></div>
             <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
@@ -751,6 +775,7 @@ select.time-select {
                       <span class="cb-ex-tr" id="b-tr"></span>
                       <button class="cb-ex-play" id="btn-speak-ex">听这句</button>
                     </div>
+                    <div id="word-extras"></div>
                     <div class="mn-box" id="mn-box">
                       <div class="mn-title">速记</div>
                       <div class="mn-row"><span class="mn-k">词根</span><span class="mn-v" id="mn-root"></span></div>
@@ -805,6 +830,7 @@ select.time-select {
 
           <div>
             <div class="group-label" style="margin:0 0 4px">专项练习</div>
+            <button class="btn btn-primary training-open">G 类说写训练与四科进度 →</button>
             <div id="drill-list"></div>
           </div>
 
@@ -818,6 +844,42 @@ select.time-select {
             </div>
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink-3)"><path d="m9 18 6-6-6-6"/></svg>
           </div>
+        </div>
+      </section>
+
+      <section class="screen" id="screen-training">
+        <header class="screen-head"><div><div class="screen-title">雅思训练</div><div class="screen-sub">G 类 · 从表达积累到完整输出</div></div><button class="btn btn-ghost" id="training-back">返回练习</button></header>
+        <div class="screen-body training-body">
+          <section class="training-card">
+            <h2>说写练习</h2><label for="training-task">选择题目与训练类型</label><select id="training-task"></select>
+            <h3 id="training-title"></h3><p class="study-note" id="training-tone"></p>
+            <p id="training-prompt" lang="en"></p><ul id="training-points"></ul>
+            <p class="study-note" id="training-duration"></p>
+            <details><summary>表达支架：按语境选用，不要整篇套用</summary><ul id="training-phrases" lang="en"></ul></details>
+            <div id="recording-tools" hidden>
+              <p class="study-note">录音只保存在本机。Part 2 请先自行准备 1 分钟再录音；一次最长 3 分钟。</p>
+              <div class="training-actions"><button class="btn btn-primary" id="start-recording">开始录音</button><button class="btn btn-ghost" id="stop-recording" disabled>停止并保存</button></div>
+              <audio id="training-audio" controls hidden></audio><a id="download-recording" hidden>下载录音备份</a><button id="clear-recording" class="d-tip" hidden>删除当前录音草稿</button>
+            </div>
+            <label for="training-text">英文作答 / 口语提纲与回听笔记</label><textarea id="training-text" rows="9" placeholder="写下自己的回答，保存草稿后可继续修改。" spellcheck="true" lang="en"></textarea>
+            <p class="study-note" id="writing-count" aria-live="polite"></p>
+            <fieldset><legend>完成后自查</legend><div id="training-checks"></div></fieldset>
+            <div class="training-actions"><button class="btn btn-ghost" id="save-training">保存草稿</button><button class="btn btn-primary" id="complete-training">保存练习记录</button></div>
+            <p class="study-note" id="training-status" role="status" aria-live="polite"></p>
+          </section>
+          <section class="training-card"><h2>练习记录</h2><p class="study-note" id="training-total"></p><p class="study-note">下方显示最近 20 次练习。录音可单独下载；草稿、练习记录和成绩不参与词库云同步。</p><div id="training-history"></div></section>
+          <section class="training-card"><h2>四科进度 · 每科目标 7+</h2><p class="study-note">显示各科最近一次手动记录，请同时查看日期与来源。词汇正确率、自查和跟读结果不会换算成雅思成绩。</p><div id="band-cards" class="band-grid"></div>
+            <details><summary>录入模考 / 反馈 / 正式考试成绩</summary>
+              <form id="band-form">
+                <label for="score-skill">科目</label><select id="score-skill"><option>听力</option><option>阅读</option><option>写作</option><option>口语</option></select>
+                <label for="score-band">分数（0–9，每档 0.5）</label><input id="score-band" type="number" min="0" max="9" step="0.5" required placeholder="例如 6.5">
+                <label for="score-date">练习或考试日期</label><input id="score-date" type="date" required>
+                <label for="score-source">来源</label><select id="score-source"><option>模考</option><option>教师反馈</option><option>正式考试</option><option>自评估计</option></select>
+                <label for="score-note">材料来源 / 需要改进的问题</label><input id="score-note" maxlength="300" placeholder="例如：G 类阅读，时间分配不足">
+                <button class="btn btn-primary" type="submit" id="save-score">保存成绩</button><p id="score-status" class="study-note" role="status"></p>
+              </form>
+            </details><p class="study-note">下方显示最近 20 条成绩；所有记录继续保存在本机。清理网站数据会清除本机记录。</p><div id="score-history"></div>
+          </section>
         </div>
       </section>
 
@@ -852,7 +914,7 @@ select.time-select {
             <input id="search-input" type="search" placeholder="搜索单词或释义" />
           </div>
           <div class="chip-row" id="chip-row"></div>
-          <ul class="list" id="word-list"></ul>
+          <p class="study-note">点击词条查看搭配、改写与各项练习记录。</p><ul class="list" id="word-list"></ul>
         </div>
       </section>
 
@@ -865,6 +927,7 @@ select.time-select {
           </div>
         </header>
         <div class="screen-body">
+          <button class="btn btn-ghost training-open">查看四科成绩与说写记录 →</button>
           <div>
             <div class="stat-hero"><span class="lbl">学过的词</span><span class="big num" id="stat-total">0</span></div>
             <div class="mini-grid" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--rule)">
@@ -1022,9 +1085,12 @@ select.time-select {
 
 <input type="file" id="file-input" accept=".txt,.csv" hidden />
 
+<dialog id="word-detail" class="word-detail"><button id="close-detail" class="btn btn-ghost">关闭</button><div id="detail-content"></div><button id="detail-speak" class="btn btn-primary">听发音</button></dialog>
 <script src="./config.js"></script>
 <script src="./seed.js"></script>
+<script src="./ielts-seed.js"></script>
 <script src="./app.js"></script>
+<script src="./ielts-training.js"></script>
 <script>
   // 活跃时段下拉填充
   (function () {
@@ -1035,7 +1101,7 @@ select.time-select {
       if (h > 0)  b.insertAdjacentHTML('beforeend', '<option value="' + h + '">' + txt + '</option>');
     }
   })();
-  window.SHICI_VERSION = '2.1';
+  window.SHICI_VERSION = '2.3';
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       // updateViaCache:'none' —— 不让浏览器用 HTTP 缓存里的旧 sw.js

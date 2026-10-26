@@ -47,7 +47,7 @@ function dbPutMany(store, arr) {
 
 /* ───────── 设置 ───────── */
 var S = {
-  dailyNew: 10, activeStart: 9, activeEnd: 22, intervalMin: 30,
+  studyTrack: '雅思G', dailyNew: 10, activeStart: 9, activeEnd: 22, intervalMin: 30,
   theme: 'auto', pushEnabled: false, syncToken: CFG.SYNC_TOKEN || '',
   autoSpeak: true, drillLen: 10
 };
@@ -61,7 +61,8 @@ function normWord(raw, ord) {
   return {
     w: String(raw.w || '').trim(),
     p: raw.p || '', pos: raw.pos || '', d: raw.d || '', ex: raw.ex || '', tr: raw.tr || '',
-    tags: raw.tags || [],
+    tags: raw.tags || [], track: raw.track || '商务',
+    paraphrase: raw.paraphrase || '', usage: raw.usage || '', prompt: raw.prompt || '', source: raw.source || '',
     mn:   raw.mn   || { root: '', hook: '', confuse: '' },
     coll: raw.coll || [],
     nat:  raw.nat  || null,
@@ -73,7 +74,7 @@ function normWord(raw, ord) {
 }
 /* 首次装库；已有词只补内容、绝不动学习进度 */
 function seedIfNeeded() {
-  var seed = window.SEED || [];
+  var seed = (window.SEED || []).concat(window.IELTS_SEED || []);
   return dbAll('words').then(function (have) {
     var byKey = {}; have.forEach(function (x) { byKey[String(x.w).toLowerCase()] = x; });
     var out = [];
@@ -82,7 +83,7 @@ function seedIfNeeded() {
       if (!cur) { out.push(normWord(s, i)); return; }
       var dirty = false;
       if (cur.ord == null) { cur.ord = i; dirty = true; }
-      ['p', 'pos', 'd', 'ex', 'tr'].forEach(function (k) {
+      ['p', 'pos', 'd', 'ex', 'tr', 'track', 'paraphrase', 'usage', 'prompt', 'source'].forEach(function (k) {
         if (!cur[k] && s[k]) { cur[k] = s[k]; dirty = true; }
       });
       if ((!cur.mn || !cur.mn.hook) && s.mn)       { cur.mn = s.mn;       dirty = true; }
@@ -150,13 +151,13 @@ function getTodayNewWords() {
   return Promise.all([dbAll('words'), dbGet('logs', dayKey())]).then(function (r) {
     var words = r[0], log = r[1] || blankLog(dayKey());
     var left = Math.max(0, (S.dailyNew || 10) - (log.learned || 0));
-    return words.filter(function (w) { return w.status === 'new'; }).sort(byOrd).slice(0, left);
+    return words.filter(function (w) { return inStudyTrack(w) && w.status === 'new'; }).sort(byOrd).slice(0, left);
   });
 }
 function getDueReviews() {
   var now = Date.now();
   return dbAll('words').then(function (words) {
-    return words.filter(function (w) { return w.status !== 'new' && (w.due || 0) <= now; })
+    return words.filter(function (w) { return inStudyTrack(w) && w.status !== 'new' && (w.due || 0) <= now; })
                 .sort(function (a, b) { return (a.due || 0) - (b.due || 0); });
   });
 }
@@ -277,6 +278,7 @@ var DRILL = {
   collo:   { dim: '地道', label: '词语搭配',   hint: '选出真实存在的搭配', need: function (w) { return (w.coll || []).length > 0; } },
   natural: { dim: '地道', label: '哪个更地道', hint: '两句挑地道的那句',   need: function (w) { return !!(w.nat && w.nat.good && w.nat.bad); } },
   cloze:   { dim: '地道', label: '场景填空',   hint: '把词填进真实语境',   need: function (w) { return !!(w.blank && w.blank.s); } },
+  paraphrase: { dim: '认词', label: '同义改写', hint: '根据英文解释识别表达（并非任意语境可互换）', need: function (w) { return !!w.paraphrase; } },
   speak:   { dim: '口语', label: '跟读打分',   hint: '跟读后按词打分',     need: function (w) { return !!w.ex; } }
 };
 
@@ -292,9 +294,9 @@ function sample(arr, n, exclude) {
 
 function buildItem(kind, w, pool) {
   var o = { kind: kind, w: w, dim: DRILL[kind].dim };
-  if (kind === 'choice') {
+  if (kind === 'choice' || kind === 'paraphrase') {
     var wrong = sample(pool.filter(function (x) { return x.w !== w.w; }), 3).map(function (x) { return x.w; });
-    o.q = w.d; o.sub = w.pos;
+    o.q = kind === 'paraphrase' ? w.paraphrase : w.d; o.sub = w.pos;
     o.opts = shuffle([w.w].concat(wrong)); o.answer = w.w;
   } else if (kind === 'spell') {
     o.q = w.d; o.say = w.w; o.answer = w.w; o.typed = true;
@@ -327,19 +329,21 @@ function makeDrillSet(kind, n) {
   return Promise.all([dbAll('words'), dbAll('drills')]).then(function (r) {
     var words = r[0], done = r[1];
     var need = DRILL[kind].need;
-    var usable = words.filter(need);
+    var usable = words.filter(function (w) { return inStudyTrack(w) && need(w); });
     if (!usable.length) return [];
-    var seenCnt = {};
-    done.forEach(function (d) { if (d.kind === kind) seenCnt[d.w] = (seenCnt[d.w] || 0) + 1; });
+    var seenCnt = {}, latest = {};
+    done.forEach(function (d) { if (d.kind === kind) { seenCnt[d.w] = (seenCnt[d.w] || 0) + 1; if (!latest[d.w] || d.ts >= latest[d.w].ts) latest[d.w] = d; } });
     var learned = usable.filter(function (w) { return w.status !== 'new'; });
-    var pickFrom = learned.length >= 4 ? learned : usable;   // 还没学过词就先拿全库练
+    var weak = usable.filter(function (w) { return latest[w.w] && !latest[w.w].ok; });
+    var pickFrom = weak.concat((learned.length >= 4 ? learned : usable).filter(function (w) { return weak.indexOf(w) < 0; }));   // 还没学过词就先拿全库练
     pickFrom = pickFrom.slice().sort(function (a, b) {
+      var wa = latest[a.w] && !latest[a.w].ok ? 1 : 0, wb = latest[b.w] && !latest[b.w].ok ? 1 : 0;
+      if (wa !== wb) return wb - wa;
       var da = seenCnt[a.w] || 0, db = seenCnt[b.w] || 0;
       if (da !== db) return da - db;
       return (a.due || 0) - (b.due || 0);
     });
-    var chosen = pickFrom.slice(0, Math.max(n, 4));
-    chosen = shuffle(chosen).slice(0, n);
+    var chosen = shuffle(pickFrom.slice(0, n));
     return chosen.map(function (w) { return buildItem(kind, w, usable); });
   });
 }
@@ -390,7 +394,8 @@ function toast(msg) {
 }
 
 function showScreen(name) {
-  ['today', 'practice', 'library', 'stats', 'settings', 'drill'].forEach(function (n) {
+  if (name !== 'training' && window.IELTS_TRAINING) window.IELTS_TRAINING.leave();
+  ['today', 'practice', 'library', 'stats', 'settings', 'drill', 'training'].forEach(function (n) {
     var s = $('screen-' + n); if (s) s.classList.toggle('active', n === name);
   });
   document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === name); });
@@ -400,6 +405,57 @@ function showScreen(name) {
   if (name === 'practice') renderPractice();
   if (name === 'library')  renderLibrary();
   if (name === 'stats')    renderStats();
+  if (name === 'training' && window.IELTS_TRAINING) window.IELTS_TRAINING.enter();
+}
+
+function weakWords(words, drills) {
+  var latest = {};
+  drills.forEach(function (d) { var k = d.w + ':' + d.kind; if (!latest[k] || d.ts >= latest[k].ts) latest[k] = d; });
+  return words.filter(function (w) {
+    return inStudyTrack(w) && (w.status === 'learning' || (w.ef || 2.5) < 2.2 || Object.keys(latest).some(function (k) { return latest[k].w === w.w && !latest[k].ok; }));
+  });
+}
+function inStudyTrack(w) { return S.studyTrack === '全部' || (w.track || '商务') === S.studyTrack; }
+function activateReviewScreen() {
+  document.querySelectorAll('.screen').forEach(function (x) { x.classList.toggle('active', x.id === 'screen-today'); });
+  document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-tab') === 'today'); });
+  document.querySelector('.tabbar').hidden = false; $('fab-add').hidden = true; renderDailyTasks();
+}
+function wordExtras(w) {
+  return '<div class="word-extra">' + esc((w.tags || []).join(' · ')) + '</div>' +
+    (w.paraphrase ? '<div class="word-extra"><b>英文释义 / 改写线索</b><br>' + esc(w.paraphrase) + '<br>需结合语境，不可直接替换所有用法。</div>' : '') +
+    (w.usage ? '<div class="word-extra"><b>用法与易错点</b><br>' + esc(w.usage) + '</div>' : '') +
+    (w.source ? '<div class="study-note">' + esc(w.source) + '</div>' : '');
+}
+function openWordDetail(w) {
+  dbAll('drills').then(function (rows) {
+    var groups = { '认识': ['recall', 'choice', 'paraphrase'], '听写': ['spell', 'listen'], '搭配': ['collo', 'natural'], '运用': ['cloze', 'speak'] };
+    var html = '<h2>' + esc(w.w) + '</h2><p>' + esc(w.p) + ' · ' + esc(w.pos) + '</p><p>' + esc(w.d) + '</p>' +
+      '<p>' + esc(w.ex) + '<br>' + esc(w.tr) + '</p><ul>' + (w.coll || []).map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>' + wordExtras(w) + '<h3>分能力练习记录</h3>';
+    Object.keys(groups).forEach(function (g) {
+      var rs = rows.filter(function (r) { return r.w === w.w && groups[g].indexOf(r.kind) >= 0; }).sort(function (a, b) { return b.ts - a.ts; });
+      html += '<p>' + g + '：' + (rs.length ? rs.filter(function (r) { return r.ok; }).length + '/' + rs.length + ' 次通过 · 最近' + (rs[0].ok ? '通过' : '需加强') : '尚未练习') + '</p>';
+    });
+    html += '<p class="study-note">这是词汇专项记录，不是雅思四科评分；跟读含自动识别或自评结果。</p>';
+    $('detail-content').innerHTML = html;
+    $('detail-speak').onclick = function () { speak(w.w); };
+    $('word-detail').showModal();
+  });
+}
+function renderDailyTasks() {
+  return Promise.all([dbAll('words'), dbAll('drills'), dbGet('settings', 'output-' + dayKey())]).then(function (r) {
+    var words = r[0].filter(inStudyTrack), today = dayKey(), drills = r[1].filter(function (d) { return dayKey(new Date(d.ts)) === today && words.some(function (w) { return w.w === d.w; }); });
+    var due = words.filter(function (w) { return w.status !== 'new' && (w.due || 0) <= Date.now(); }).length;
+    var fresh = words.filter(function (w) { return w.first && dayKey(new Date(w.first)) === today; }).length;
+    var specific = drills.filter(function (d) { return ['spell', 'listen', 'paraphrase'].indexOf(d.kind) >= 0; }).length;
+    var tasks = [['复习到期词', due ? '剩余 ' + due + ' 词' : '暂无到期', startReview], ['学习新表达', fresh + ' / ' + (S.dailyNew || 10), function () { renderToday(); }], ['听写 / 改写练习', Math.min(specific, 5) + ' / 5 题', function () { startDrill(S.studyTrack === '商务' ? 'spell' : 'paraphrase'); }]];
+    var box = $('daily-tasks'); box.innerHTML = '';
+    tasks.forEach(function (t) { var b = el('button', 'task-row'); b.innerHTML = '<span>' + esc(t[0]) + '</span><span>' + esc(t[1]) + '</span>'; b.addEventListener('click', t[2]); box.appendChild(b); });
+    var prompts = words.filter(function (w) { return !!w.prompt; });
+    var chosen = prompts.length ? prompts[Number(today.replace(/-/g, '')) % prompts.length] : null;
+    $('output-prompt').textContent = chosen ? chosen.prompt + ' · 尝试使用：' + chosen.w : 'Describe a useful skill you would like to learn for work.';
+    if (document.activeElement !== $('output-draft')) $('output-draft').value = r[2] ? r[2].v : '';
+  });
 }
 
 /* ───────── 今日 / 复习：闪卡 ───────── */
@@ -434,10 +490,12 @@ function setCard(w, idx, total, again) {
   var cb = $('coll-box'), list = w.coll || [];
   cb.hidden = !list.length;
   if (list.length) $('coll-list').innerHTML = list.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('');
+  $('word-extras').innerHTML = wordExtras(w);
   $('flashcard').classList.remove('flipped');
 }
 
 function renderToday() {
+  renderDailyTasks();
   return Promise.all([getTodayNewWords(), dbGet('logs', dayKey()), dbAll('logs')]).then(function (r) {
     var news = r[0], log = r[1] || blankLog(dayKey()), logs = r[2] || [];
     var goal = S.dailyNew || 10, done = Math.min(log.learned || 0, goal);
@@ -458,7 +516,7 @@ function startReview() {
     if (!list.length) { toast('现在没有到期的词'); return; }
     mode = 'review'; queue = list; qi = 0; queueBase = 0; queueGoal = 0;
     seenRound = {};
-    showScreen('today');
+    activateReviewScreen();
     $('card-mode').textContent = '复习';
     paintQueue('这一轮复习做完了', '下一批到期会自动排进来');
   });
@@ -509,9 +567,9 @@ function renderTodayCounterOnly() {
 /* ───────── 练习页 ───────── */
 function renderPractice() {
   return Promise.all([getDueReviews(), dbAll('words'), dbAll('drills')]).then(function (r) {
-    var due = r[0], words = r[1], drills = r[2];
+    var due = r[0], words = r[1].filter(inStudyTrack), drills = r[2];
     $('review-count').textContent = due.length;
-    var wrong = words.filter(function (w) { return w.status === 'learning' || (w.ef || 2.5) < 2.2; });
+    var wrong = weakWords(words, drills);
     $('wrong-count').textContent = wrong.length + ' 个需要加强的词';
     var cnt = {};
     drills.forEach(function (d) { cnt[d.kind] = (cnt[d.kind] || 0) + 1; });
@@ -608,6 +666,8 @@ function paintDrill() {
 }
 
 function judge(it, given, btn) {
+  if (it.answered) return;
+  it.answered = true;
   var ok;
   if (it.typed) {
     ok = tokens(given).join(' ') === tokens(it.answer).join(' ');
@@ -740,7 +800,7 @@ var libTag = '全部', libQ = '';
 function renderLibrary() {
   return dbAll('words').then(function (words) {
     var tags = {}; words.forEach(function (w) { (w.tags || []).forEach(function (t) { tags[t] = (tags[t] || 0) + 1; }); });
-    var order = ['全部', '收藏'].concat(Object.keys(tags).sort(function (a, b) { return tags[b] - tags[a]; }).slice(0, 8));
+    var order = ['全部', '收藏', '雅思G', '商务'].concat(Object.keys(tags).filter(function (t) { return t !== '雅思G' && t !== '商务'; }).sort(function (a, b) { return tags[b] - tags[a]; }));
     if (libTag !== '全部' && order.indexOf(libTag) < 0) order.push(libTag);
     var cr = $('chip-row');
     if (cr.getAttribute('data-built') !== order.join()) {
@@ -752,7 +812,8 @@ function renderLibrary() {
     var q = libQ.trim().toLowerCase();
     var rows = words.filter(function (w) {
       if (libTag === '收藏' && !w.fav) return false;
-      if (libTag !== '全部' && libTag !== '收藏' && (w.tags || []).indexOf(libTag) < 0) return false;
+      if (libTag === '商务' && (w.track || '商务') !== '商务') return false;
+      if (libTag !== '全部' && libTag !== '收藏' && libTag !== '商务' && (w.tags || []).indexOf(libTag) < 0) return false;
       if (!q) return true;
       return w.w.toLowerCase().indexOf(q) > -1 || (w.d || '').indexOf(q) > -1;
     }).sort(byOrd);
@@ -1043,6 +1104,17 @@ function wireSwipe() {
 
 /* ───────── 事件绑定 ───────── */
 function wire() {
+  document.querySelectorAll('.training-open').forEach(function (b) { b.addEventListener('click', function () { showScreen('training'); }); });
+  $('training-back').addEventListener('click', function () { showScreen('practice'); });
+  $('study-track').value = S.studyTrack;
+  $('study-track').addEventListener('change', function () { setS('studyTrack', this.value).then(renderToday); });
+  $('save-output').addEventListener('click', function () {
+    dbPut('settings', { k: 'output-' + dayKey(), v: $('output-draft').value }).then(function () {
+      $('output-status').textContent = '已保存在本机。检查：切题、搭配、语法；此处不自动评分。'; renderDailyTasks();
+    }).catch(function () { toast('保存失败，请重试'); });
+  });
+  $('close-detail').addEventListener('click', function () { $('word-detail').close(); });
+
   wireSwipe();
 
   document.querySelectorAll('.tab').forEach(function (t) {
@@ -1062,13 +1134,13 @@ function wire() {
 
   $('btn-start-review').addEventListener('click', startReview);
   $('btn-wrong').addEventListener('click', function () {
-    dbAll('words').then(function (ws) {
-      var list = ws.filter(function (w) { return w.status === 'learning' || (w.ef || 2.5) < 2.2; })
+    Promise.all([dbAll('words'), dbAll('drills')]).then(function (r) {
+      var list = weakWords(r[0], r[1])
                    .sort(function (a, b) { return (a.ef || 2.5) - (b.ef || 2.5); });
       if (!list.length) { toast('错词本是空的，不错'); return; }
       mode = 'review'; queue = list.slice(0, 20); qi = 0; queueBase = 0; queueGoal = 0;
       seenRound = {};
-      showScreen('today'); paintQueue('错词过完了', '这些词的间隔已经重排');
+      activateReviewScreen(); paintQueue('错词过完了', '这些词的间隔已经重排');
     });
   });
 
@@ -1098,7 +1170,7 @@ function wire() {
         });
       });
     } else {
-      dbGet('words', key).then(function (w) { if (w) speak(w.w); });
+      dbGet('words', key).then(function (w) { if (w) openWordDetail(w); });
     }
   });
 

@@ -4,10 +4,10 @@
        推了新版本，手机一打开就是新的；没网时回落到缓存，照样能用。
      · 字体和图标 → 缓存优先（这些永远不变，没必要每次走网络）
    所以更新 App 不需要改这里的 CACHE 名字。*/
-var VERSION = '2.1';
+var VERSION = '2.3';
 var CACHE = 'shici-' + VERSION;
 var SHELL = [
-  './', './index.html', './app.js', './seed.js', './config.js',
+  './', './index.html', './app.js', './ielts-training.js', './seed.js', './ielts-seed.js', './config.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
   './fonts/fraunces.woff2', './fonts/plex-sans-400.woff2', './fonts/plex-sans-600.woff2',
   './fonts/plex-mono-400.woff2', './fonts/plex-mono-600.woff2', './fonts/plex-mono-400-ext.woff2'
